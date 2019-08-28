@@ -8,3 +8,5 @@ userbot: false
 # sandboxing in maubot or this plugin, keep this list small.
 whitelist:
 - '@user:example.com'
+# Number of seconds to wait between output update edits.
+output_interval: 5

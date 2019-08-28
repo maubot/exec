@@ -35,12 +35,14 @@ class Config(BaseProxyConfig):
         helper.copy("prefix")
         helper.copy("userbot")
         helper.copy("whitelist")
+        helper.copy("output_interval")
 
 
 class ExecBot(Plugin):
     whitelist: Set[UserID]
     userbot: bool
     prefix: str
+    output_interval: int
 
     @classmethod
     def get_config_class(cls) -> Type[BaseProxyConfig]:
@@ -54,6 +56,7 @@ class ExecBot(Plugin):
         self.whitelist = set(self.config["whitelist"])
         self.userbot = self.config["userbot"]
         self.prefix = self.config["prefix"]
+        self.output_interval = self.config["output_interval"]
 
     @event.on(EventType.ROOM_MESSAGE)
     async def exec(self, evt: MessageEvent) -> None:
@@ -72,12 +75,12 @@ class ExecBot(Plugin):
         for entity in command.entities:
             if entity.type != EntityType.PREFORMATTED:
                 continue
-            current_lang = entity.extra_info["language"]
+            current_lang = entity.extra_info["language"].lower()
             value = command.text[entity.offset:entity.offset+entity.length]
             if not code:
                 code = value
                 lang = current_lang
-            elif lang == "stdin":
+            elif lang == "stdin" or lang == "input":
                 stdin += value
         if not code or not lang:
             return
