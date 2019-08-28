@@ -1,0 +1,9 @@
+maubot: 0.1.0
+id: xyz.maubot.exec
+version: 0.1.0
+license: AGPL-3.0-or-later
+modules:
+- exec
+main_class: ExecBot
+extra_files:
+- base-config.yaml

@@ -1,0 +1,10 @@
+# The message prefix to treat as exec commands
+prefix: !exec
+# Whether or not to enable "userbot" mode, where commands that the bot's user
+# sends are handled and responded to with edits instead of replies.
+# This is intended to be used when you run the plugin on your own account.
+userbot: false
+# The list of user IDs who are allowed to execute stuff. There is absolutely no
+# sandboxing in maubot or this plugin, keep this list small.
+whitelist:
+- '@user:example.com'
