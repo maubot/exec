@@ -37,6 +37,7 @@ class AsyncTextOutput:
         self.read_task = None
         self.queue = asyncio.Queue(loop=self.loop)
         self.closed = False
+        self.writers = {}
 
     def __aiter__(self) -> 'AsyncTextOutput':
         return self

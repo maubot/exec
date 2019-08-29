@@ -1,5 +1,5 @@
 # The message prefix to treat as exec commands
-prefix: !exec
+prefix: '!exec'
 # Whether or not to enable "userbot" mode, where commands that the bot's user
 # sends are handled and responded to with edits instead of replies.
 # This is intended to be used when you run the plugin on your own account.
@@ -8,5 +8,49 @@ userbot: false
 # sandboxing in maubot or this plugin, keep this list small.
 whitelist:
 - '@user:example.com'
-# Number of seconds to wait between output update edits.
-output_interval: 5
+
+output:
+    # Number of seconds to wait between output update edits.
+    interval: 5
+    # Arguments for the Jinja2 template initialization.
+    template_args:
+        lstrip_blocks: true
+        trim_blocks: yes
+    # Plaintext output template.
+    plaintext: |
+        Input ({{ input }}):
+        {{ code }}
+        {% if output %}
+
+        Output:
+        {{ output }}
+        {% endif %}
+        {% if return_value %}
+
+        Return:
+        {{ return_value }}
+        {% endif %}
+        {% if duration %}
+
+        Took {{ duration | round(3) }} seconds
+        {% else %}
+
+        Running...
+        {% endif %}
+    # HTML output template.
+    html: |
+        <h4>Input</h4>
+        <pre><code class="language-{{ language }}">{{ code }}</code></pre>
+        {% if output %}
+        <h4>Output</h4>
+        <pre>{{ output }}</pre>
+        {% endif %}
+        {% if return_value %}
+            <h4>Return</h4>
+            <pre>{{ return_value }}</pre>
+        {% endif %}
+        {% if duration %}
+            <h4>Took {{ duration | round(3) }} seconds</h4>
+        {% else %}
+            <h4>Running...</h4>
+        {% endif %}
