@@ -1,8 +1,6 @@
 # exec
 A [maubot](https://github.com/maubot/maubot) that executes code.
 
-# This does not work yet
-
 ## Usage
 The bot is triggered by a specific message prefix (defaults to `!exec`) and
 executes the code in the first code block.
