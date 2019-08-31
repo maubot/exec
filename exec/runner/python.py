@@ -13,95 +13,83 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import Dict, Any, Optional, AsyncGenerator
+from typing import Dict, Any, Optional, Tuple, AsyncGenerator, Type, NamedTuple
+from types import TracebackType
 from io import IOBase, StringIO
 import contextlib
+import traceback
 import asyncio
 import ast
 import sys
 
 from mautrix.util.manhole import asyncify
 
-from .base import Runner, OutputType
+from .base import Runner, OutputType, AsyncTextOutput
 
 
-class AsyncTextOutput:
-    loop: asyncio.AbstractEventLoop
-    queue: asyncio.Queue
-    writers: Dict[OutputType, 'ProxyOutput']
-    read_task: Optional[asyncio.Future]
-    closed: bool
+class SyncTextProxy(AsyncTextOutput):
+    writers: Dict[OutputType, 'ProxyWriter']
 
     def __init__(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
-        self.loop = loop or asyncio.get_event_loop()
-        self.read_task = None
-        self.queue = asyncio.Queue(loop=self.loop)
-        self.closed = False
+        super().__init__(loop)
         self.writers = {}
 
-    def __aiter__(self) -> 'AsyncTextOutput':
-        return self
-
-    async def __anext__(self) -> str:
-        if self.closed:
-            raise StopAsyncIteration
-        self.read_task = asyncio.ensure_future(self.queue.get(), loop=self.loop)
-        try:
-            data = await self.read_task
-        except asyncio.CancelledError:
-            raise StopAsyncIteration
-        self.queue.task_done()
-        return data
-
     def close(self) -> None:
-        self.closed = True
         for proxy in self.writers.values():
-            proxy.close(_ato=True)
-        if self.read_task:
-            self.read_task.cancel()
+            proxy.close(_stp=True)
+        super().close()
 
-    def get_writer(self, output_type: OutputType) -> 'ProxyOutput':
+    def get_writer(self, output_type: OutputType) -> 'ProxyWriter':
         try:
             return self.writers[output_type]
         except KeyError:
-            self.writers[output_type] = proxy = ProxyOutput(output_type, self)
+            self.writers[output_type] = proxy = ProxyWriter(output_type, self)
             return proxy
 
 
-class ProxyOutput(IOBase):
+class ProxyWriter(IOBase):
     type: OutputType
-    ato: AsyncTextOutput
+    stp: SyncTextProxy
 
-    def __init__(self, output_type: OutputType, ato: AsyncTextOutput) -> None:
+    def __init__(self, output_type: OutputType, stp: SyncTextProxy) -> None:
         self.type = output_type
-        self.ato = ato
+        self.stp = stp
 
     def write(self, data: str) -> None:
         """Write to the stdout queue"""
-        self.ato.queue.put_nowait((self.type, data))
+        self.stp.queue.put_nowait((self.type, data))
 
     def writable(self) -> bool:
         return True
 
-    def close(self, _ato: bool = False) -> None:
+    def close(self, _stp: bool = False) -> None:
         super().close()
-        if not _ato:
-            self.ato.close()
+        if not _stp:
+            self.stp.close()
+
+
+ExcInfo = NamedTuple('ExcInfo', type=Type[BaseException], exc=Exception, tb=TracebackType)
 
 
 class PythonRunner(Runner):
     namespace: Dict[str, Any]
+    per_run_namespace: bool
 
-    def __init__(self, namespace: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, namespace: Optional[Dict[str, Any]] = None, per_run_namespace: bool = True
+                 ) -> None:
         self.namespace = namespace or {}
+        self.per_run_namespace = per_run_namespace
 
-    async def _run_task(self, stdio: AsyncTextOutput) -> str:
-        value = await eval("__eval_async_expr()", self.namespace)
-        stdio.close()
+    @staticmethod
+    async def _wait_task(namespace: Dict[str, Any], stdio: SyncTextProxy) -> str:
+        try:
+            value = await eval("__eval_async_expr()", namespace)
+        finally:
+            stdio.close()
         return value
 
     @contextlib.contextmanager
-    def _redirect_io(self, output: AsyncTextOutput, stdin: StringIO) -> AsyncTextOutput:
+    def _redirect_io(self, output: SyncTextProxy, stdin: StringIO) -> SyncTextProxy:
         old_stdout, old_stderr, old_stdin = sys.stdout, sys.stderr, sys.stdin
         sys.stdout = output.get_writer(OutputType.STDOUT)
         sys.stderr = output.get_writer(OutputType.STDERR)
@@ -109,12 +97,45 @@ class PythonRunner(Runner):
         yield output
         sys.stdout, sys.stderr, sys.stdin = old_stdout, old_stderr, old_stdin
 
-    async def run(self, code: str, stdin: str = "") -> AsyncGenerator[str, None]:
-        codeobj = asyncify(compile(code, "<input>", "exec", optimize=1, flags=ast.PyCF_ONLY_AST))
-        exec(codeobj, self.namespace)
-        with self._redirect_io(AsyncTextOutput(), StringIO(stdin)) as output:
-            task = asyncio.ensure_future(self._run_task(output))
+    @staticmethod
+    def _format_exc(exception: Exception) -> str:
+        if len(exception.args) == 0:
+            return type(exception).__name__
+        elif len(exception.args) == 1:
+            return f"{type(exception).__name__}: {exception.args[0]}"
+        else:
+            return f"{type(exception).__name__}: {exception.args}"
+
+    def format_exception(self, exc_info: ExcInfo) -> Tuple[Optional[str], Optional[str]]:
+        if not exc_info:
+            return None, None
+        tb = traceback.extract_tb(exc_info.tb)
+
+        line: traceback.FrameSummary
+        for i, line in enumerate(tb):
+            if line.filename == "<input>":
+                line.name = "<module>"
+                tb = tb[i:]
+                break
+
+        return ("Traceback (most recent call last):",
+                f"{''.join(traceback.format_list(tb))}"
+                f"{self._format_exc(exc_info.exc)}")
+
+    async def run(self, code: str, stdin: str = "", loop: Optional[asyncio.AbstractEventLoop] = None
+                  ) -> AsyncGenerator[Tuple[OutputType, Any], None]:
+        loop = loop or asyncio.get_event_loop()
+        codeobj = asyncify(compile(code, "<input>", "exec", optimize=1, flags=ast.PyCF_ONLY_AST),
+                           module="<input>")
+        namespace = {**self.namespace} if self.per_run_namespace else self.namespace
+        exec(codeobj, namespace)
+        with self._redirect_io(SyncTextProxy(loop), StringIO(stdin)) as output:
+            task = asyncio.ensure_future(self._wait_task(namespace, output), loop=loop)
             async for part in output:
                 yield part
-            return_value = await task
-            yield (OutputType.RETURN, return_value)
+            try:
+                return_value = await task
+            except Exception:
+                yield (OutputType.EXCEPTION, sys.exc_info())
+            else:
+                yield (OutputType.RETURN, return_value)

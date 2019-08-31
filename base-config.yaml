@@ -1,4 +1,4 @@
-# The message prefix to treat as exec commands
+# The message prefix to treat as exec commands.
 prefix: '!exec'
 # Whether or not to enable "userbot" mode, where commands that the bot's user
 # sends are handled and responded to with edits instead of replies.
@@ -25,12 +25,17 @@ output:
         Output:
         {{ output }}
         {% endif %}
-        {% if return_value %}
+        {% if return_value != None %}
 
         Return:
         {{ return_value }}
         {% endif %}
-        {% if duration %}
+        {% if traceback != None %}
+
+        {% if traceback_header %}{{ traceback_header }}:{% endif %}
+        {{ traceback }}
+        {% endif %}
+        {% if duration != None %}
 
         Took {{ duration | round(3) }} seconds
         {% else %}
@@ -45,11 +50,19 @@ output:
         <h4>Output</h4>
         <pre>{{ output }}</pre>
         {% endif %}
-        {% if return_value %}
+        {% if return_value != None %}
+            {% if language in ("bash", "sh", "shell") %}
+            <h4>Return: <code>{{ return_value }}</code></h4>
+            {% else %}
             <h4>Return</h4>
             <pre>{{ return_value }}</pre>
+            {% endif %}
         {% endif %}
-        {% if duration %}
+        {% if traceback != None %}
+            {% if traceback_header %}<h4>{{ traceback_header }}</h4>{% endif %}
+            <pre><code class="language-pytb">{{ traceback }}</code></pre>
+        {% endif %}
+        {% if duration != None %}
             <h4>Took {{ duration | round(3) }} seconds</h4>
         {% else %}
             <h4>Running...</h4>

@@ -15,8 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Type, Set, Optional, Any
 from io import StringIO
+from html import escape as escape_orig
 from time import time
-from html import escape
 
 from jinja2 import Template
 
@@ -26,7 +26,11 @@ from mautrix.util.formatter import MatrixParser, EntityString, SimpleEntity, Ent
 from maubot import Plugin, MessageEvent
 from maubot.handlers import event
 
-from .runner import PythonRunner, OutputType
+from .runner import PythonRunner, ShellRunner, OutputType
+
+
+def escape(val: Optional[str]) -> Optional[str]:
+    return escape(val) if val else None
 
 
 class EntityParser(MatrixParser[EntityString]):
@@ -70,26 +74,27 @@ class ExecBot(Plugin):
         self.html_template = Template(self.config["output.html"], **template_args)
 
     def format_status(self, code: str, language: str, output: str = "", output_html: str = "",
-                      return_value: Any = None, duration: Optional[float] = None,
+                      return_value: Any = None, traceback: Optional[str] = None,
+                      traceback_header: Optional[str] = None, duration: Optional[float] = None,
                       msgtype: MessageType = MessageType.NOTICE) -> TextMessageEventContent:
-        return_value = repr(return_value) if return_value else ''
+        return_value = repr(return_value) if return_value is not None else None
         content = TextMessageEventContent(
             msgtype=msgtype, format=Format.HTML,
             body=self.plaintext_template.render(
                 code=code, language=language, output=output, return_value=return_value,
-                duration=duration),
+                duration=duration, traceback=traceback, traceback_header=traceback_header),
             formatted_body=self.html_template.render(
                 code=escape(code), language=language, output=output_html,
-                return_value=escape(return_value), duration=duration))
+                return_value=escape(return_value), duration=duration, traceback=escape(traceback),
+                traceback_header=escape(traceback_header)))
         return content
 
     @event.on(EventType.ROOM_MESSAGE)
     async def exec(self, evt: MessageEvent) -> None:
-        if evt.sender not in self.whitelist:
-            return
-        elif not evt.content.body.startswith(self.prefix):
-            return
-        elif not evt.content.formatted_body:
+        if ((evt.content.msgtype != MessageType.TEXT
+             or evt.sender not in self.whitelist
+             or not evt.content.body.startswith(self.prefix)
+             or not evt.content.formatted_body)):
             return
 
         command = EntityParser.parse(evt.content.formatted_body)
@@ -110,8 +115,15 @@ class ExecBot(Plugin):
         if not code or not lang:
             return
 
-        if lang != "python":
-            await evt.respond("Only python is currently supported")
+        if lang == "python":
+            runner = PythonRunner(namespace={
+                "client": self.client,
+                "event": evt,
+            })
+        elif lang in ("shell", "bash", "sh"):
+            runner = ShellRunner()
+        else:
+            await evt.respond(f'Unsupported language "{lang}"')
             return
 
         if self.userbot:
@@ -124,10 +136,10 @@ class ExecBot(Plugin):
             content = self.format_status(code, lang, msgtype=msgtype)
             output_event_id = await evt.respond(content)
 
-        runner = PythonRunner()
         output = StringIO()
         output_html = StringIO()
         return_value: Any = None
+        traceback, traceback_header = None, None
         start_time = time()
         prev_output = start_time
         async for out_type, data in runner.run(code, stdin):
@@ -140,6 +152,9 @@ class ExecBot(Plugin):
             elif out_type == OutputType.RETURN:
                 return_value = data
                 continue
+            elif out_type == OutputType.EXCEPTION:
+                traceback, traceback_header = runner.format_exception(data)
+                continue
 
             cur_time = time()
             if prev_output + self.output_interval < cur_time:
@@ -149,7 +164,9 @@ class ExecBot(Plugin):
                 await self.client.send_message(evt.room_id, content)
                 prev_output = cur_time
         duration = time() - start_time
+        print(return_value)
         content = self.format_status(code, lang, output.getvalue(), output_html.getvalue(),
-                                     return_value, duration, msgtype=msgtype)
+                                     return_value, traceback, traceback_header, duration,
+                                     msgtype=msgtype)
         content.set_edit(output_event_id)
         await self.client.send_message(evt.room_id, content)
