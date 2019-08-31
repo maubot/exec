@@ -30,10 +30,10 @@ output:
         Return:
         {{ return_value }}
         {% endif %}
-        {% if traceback != None %}
+        {% if exception != None %}
 
-        {% if traceback_header %}{{ traceback_header }}:{% endif %}
-        {{ traceback }}
+        {% if exception_header %}{{ exception_header }}:{% endif %}
+        {{ exception }}
         {% endif %}
         {% if duration != None %}
 
@@ -58,9 +58,9 @@ output:
             <pre>{{ return_value }}</pre>
             {% endif %}
         {% endif %}
-        {% if traceback != None %}
-            {% if traceback_header %}<h4>{{ traceback_header }}</h4>{% endif %}
-            <pre><code class="language-pytb">{{ traceback }}</code></pre>
+        {% if exception != None %}
+            {% if exception_header %}<h4>{{ exception_header }}</h4>{% endif %}
+            <pre><code class="language-pytb">{{ exception }}</code></pre>
         {% endif %}
         {% if duration != None %}
             <h4>Took {{ duration | round(3) }} seconds</h4>

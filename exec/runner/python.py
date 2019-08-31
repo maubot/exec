@@ -94,8 +94,10 @@ class PythonRunner(Runner):
         sys.stdout = output.get_writer(OutputType.STDOUT)
         sys.stderr = output.get_writer(OutputType.STDERR)
         sys.stdin = stdin
-        yield output
-        sys.stdout, sys.stderr, sys.stdin = old_stdout, old_stderr, old_stdin
+        try:
+            yield output
+        finally:
+            sys.stdout, sys.stderr, sys.stdin = old_stdout, old_stderr, old_stdin
 
     @staticmethod
     def _format_exc(exception: Exception) -> str:
@@ -136,6 +138,6 @@ class PythonRunner(Runner):
             try:
                 return_value = await task
             except Exception:
-                yield (OutputType.EXCEPTION, sys.exc_info())
+                yield (OutputType.EXCEPTION, ExcInfo(*sys.exc_info()))
             else:
                 yield (OutputType.RETURN, return_value)

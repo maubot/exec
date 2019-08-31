@@ -30,7 +30,7 @@ from .runner import PythonRunner, ShellRunner, OutputType
 
 
 def escape(val: Optional[str]) -> Optional[str]:
-    return escape(val) if val else None
+    return escape_orig(val) if val is not None else None
 
 
 class EntityParser(MatrixParser[EntityString]):
@@ -74,19 +74,19 @@ class ExecBot(Plugin):
         self.html_template = Template(self.config["output.html"], **template_args)
 
     def format_status(self, code: str, language: str, output: str = "", output_html: str = "",
-                      return_value: Any = None, traceback: Optional[str] = None,
-                      traceback_header: Optional[str] = None, duration: Optional[float] = None,
+                      return_value: Any = None, exception_header: Optional[str] = None,
+                      exception: Optional[str] = None, duration: Optional[float] = None,
                       msgtype: MessageType = MessageType.NOTICE) -> TextMessageEventContent:
         return_value = repr(return_value) if return_value is not None else None
         content = TextMessageEventContent(
             msgtype=msgtype, format=Format.HTML,
             body=self.plaintext_template.render(
                 code=code, language=language, output=output, return_value=return_value,
-                duration=duration, traceback=traceback, traceback_header=traceback_header),
+                duration=duration, exception=exception, exception_header=exception_header),
             formatted_body=self.html_template.render(
                 code=escape(code), language=language, output=output_html,
-                return_value=escape(return_value), duration=duration, traceback=escape(traceback),
-                traceback_header=escape(traceback_header)))
+                return_value=escape(return_value), duration=duration, exception=escape(exception),
+                exception_header=escape(exception_header)))
         return content
 
     @event.on(EventType.ROOM_MESSAGE)
@@ -110,7 +110,7 @@ class ExecBot(Plugin):
             if not code:
                 code = value
                 lang = current_lang
-            elif lang == "stdin" or lang == "input":
+            elif current_lang == "stdin" or current_lang == "input":
                 stdin += value
         if not code or not lang:
             return
@@ -139,7 +139,7 @@ class ExecBot(Plugin):
         output = StringIO()
         output_html = StringIO()
         return_value: Any = None
-        traceback, traceback_header = None, None
+        exception_header, exception = None, None
         start_time = time()
         prev_output = start_time
         async for out_type, data in runner.run(code, stdin):
@@ -153,7 +153,7 @@ class ExecBot(Plugin):
                 return_value = data
                 continue
             elif out_type == OutputType.EXCEPTION:
-                traceback, traceback_header = runner.format_exception(data)
+                exception_header, exception = runner.format_exception(data)
                 continue
 
             cur_time = time()
@@ -166,7 +166,7 @@ class ExecBot(Plugin):
         duration = time() - start_time
         print(return_value)
         content = self.format_status(code, lang, output.getvalue(), output_html.getvalue(),
-                                     return_value, traceback, traceback_header, duration,
+                                     return_value, exception_header, exception, duration,
                                      msgtype=msgtype)
         content.set_edit(output_event_id)
         await self.client.send_message(evt.room_id, content)
